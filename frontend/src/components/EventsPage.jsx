@@ -1,21 +1,89 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 // Use environment variable for API URL, fallback to localhost for development
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
+// Memoized EventRow component to prevent unnecessary re-renders
+const EventRow = React.memo(({ 
+  event, 
+  onActionSelect, 
+  normalizeLocation, 
+  formatDate, 
+  formatActionTime, 
+  getActionColor, 
+  getTypeColor 
+}) => {
+  const handleActionChange = useCallback((e) => {
+    onActionSelect(String(event.id), event.type, e.target.value);
+  }, [event.id, event.type, onActionSelect]);
+
+  return (
+    <tr key={String(event.id)} className="hover:bg-gray-50">
+      <td className="px-6 py-4 whitespace-nowrap">
+        <div className="text-sm font-medium text-gray-900">{event.title}</div>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getTypeColor(event.type)}`}>
+          {event.type}
+        </span>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {normalizeLocation(event.location)}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {formatDate(event.start_date)}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {formatDate(event.end_date)}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {event.url ? (
+          <a 
+            href={event.url} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            Visit
+          </a>
+        ) : 'N/A'}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {event.last_action ? (
+          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getActionColor(event.last_action)}`}>
+            {event.last_action}
+          </span>
+        ) : '—'}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {event.action_time ? formatActionTime(event.action_time) : '—'}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+        <select
+          defaultValue=""
+          onChange={handleActionChange}
+          className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+        >
+          <option value="" disabled>Choose Action</option>
+          <option value="reached_out">Mark as Reached Out</option>
+          <option value="archive">Archive</option>
+        </select>
+      </td>
+    </tr>
+  );
+});
+
 const EventsPage = () => {
   const [events, setEvents] = useState([]);
-  const [filteredEvents, setFilteredEvents] = useState([]);
-  const [eventActions, setEventActions] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  // Filter states - removed statusFilter
+  // Filter states
   const [typeFilter, setTypeFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
 
-  // Normalize location function
-  const normalizeLocation = (location) => {
+  // Memoized utility functions to prevent recreation on every render
+  const normalizeLocation = useCallback((location) => {
     if (!location) return 'N/A';
     
     // Replace Virtual/Online with Remote
@@ -29,33 +97,58 @@ const EventsPage = () => {
     }
     
     return location;
-  };
+  }, []);
 
-  // Fetch event actions for a given event ID
-  const fetchEventAction = async (eventId) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/event-action/${eventId}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        return data;
-      } else if (response.status === 404) {
-        return null; // No action found
-      }
-      
-      return null;
-    } catch (err) {
-      console.error(`Error fetching action for event ${eventId}:`, err);
-      return null;
+  const formatDate = useCallback((dateString) => {
+    if (!dateString) return '—';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      return 'TBD';
     }
-  };
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  }, []);
 
-  // Define handleActionSelect function
-  async function handleActionSelect(eventId, eventType, action) {
+  const formatActionTime = useCallback((timestamp) => {
+    if (!timestamp) return '—';
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return '—';
+    
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  }, []);
+
+  const getActionColor = useCallback((action) => {
+    switch (action) {
+      case 'archive': return 'bg-red-100 text-red-800';
+      case 'reached_out': return 'bg-green-100 text-green-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  }, []);
+
+  const getTypeColor = useCallback((type) => {
+    switch (type) {
+      case 'hackathon': return 'bg-blue-100 text-blue-800';
+      case 'conference': return 'bg-purple-100 text-purple-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  }, []);
+
+  // Optimized handleActionSelect with useCallback
+  const handleActionSelect = useCallback(async (eventId, eventType, action) => {
     if (!action) return;
-    console.log(`Attempting action: ${action} for event ${eventId} (${eventType})`); // For debugging
+    console.log(`Attempting action: ${action} for event ${eventId} (${eventType})`);
+    
     try {
-      const res = await fetch(`${API_BASE_URL}/event-action`, { // Use API_BASE_URL
+      const res = await fetch(`${API_BASE_URL}/event-action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -64,28 +157,27 @@ const EventsPage = () => {
           action,
         }),
       });
+      
       if (res.ok) {
-        console.log("Action recorded successfully, reloading..."); // For debugging
-        // Instead of full reload, ideally re-fetch events or update specific event
-        // For simplicity as requested, using reload for now:
+        console.log("Action recorded successfully, reloading...");
         fetchEvents(); // Re-fetch all events to update UI
-        // window.location.reload(); // Alternative: full page reload
       } else {
         const errorData = await res.json();
-        console.error("Failed to record action:", res.status, errorData); // Log error details
+        console.error("Failed to record action:", res.status, errorData);
         alert(`Failed to record action: ${errorData.detail || res.statusText}`);
       }
     } catch (error) {
       console.error("Action submission failed:", error);
       alert("Error submitting action.");
     }
-  }
+  }, []);
 
-  // Fetch events from API
-  const fetchEvents = async () => {
+  // PERFORMANCE OPTIMIZED: Single API call that includes action data
+  const fetchEvents = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
+      
       const response = await fetch(`${API_BASE_URL}/events`);
       
       if (!response.ok) {
@@ -94,35 +186,16 @@ const EventsPage = () => {
       
       let data = await response.json();
 
-      // Ensure event.id is a string for consistent key usage later
+      // Ensure event.id is a string for consistent key usage
       data = data.map(event => ({ ...event, id: String(event.id) }));
       
       setEvents(data);
-      setFilteredEvents(data);
       
-      // If backend /events now directly includes last_action and action_time,
-      // the separate fetchEventAction loop might not be needed anymore.
-      // For now, keeping the existing logic for eventActions for compatibility
-      // until backend changes are confirmed and applied here.
-      const actionsMap = {};
-      await Promise.all(
-        data.map(async (event) => {
-          if (event.id) {
-            // If last_action and action_time are already in event object from /events, use them directly
-            // Otherwise, fetch separately (current logic)
-            if (event.last_action && event.action_time) {
-              actionsMap[event.id] = { action: event.last_action, timestamp: event.action_time };
-            } else {
-              // Fallback to fetching individually if not provided by /events (legacy or transition)
-              const action = await fetchEventAction(event.id); // fetchEventAction might be deprecated
-              if (action) {
-                actionsMap[event.id] = action;
-              }
-            }
-          }
-        })
-      );
-      setEventActions(actionsMap); // This state might become redundant
+      // Check performance headers
+      const processTime = response.headers.get('X-Process-Time');
+      if (processTime) {
+        console.log(`✅ API response time: ${(parseFloat(processTime) * 1000).toFixed(0)}ms`);
+      }
       
     } catch (err) {
       console.error('Error fetching events:', err);
@@ -130,15 +203,15 @@ const EventsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Initial load
   useEffect(() => {
     fetchEvents();
-  }, []);
+  }, [fetchEvents]);
 
-  // Filter events based on selected filters - removed status filtering
-  useEffect(() => {
+  // Memoized filtered and sorted events
+  const filteredAndSortedEvents = useMemo(() => {
     let filtered = events;
 
     if (typeFilter) {
@@ -151,77 +224,30 @@ const EventsPage = () => {
       );
     }
 
-    setFilteredEvents(filtered);
-  }, [events, typeFilter, locationFilter]);
+    // Helper function to get a sortable Date object
+    const getSortableDate = (dateString) => {
+      if (!dateString) {
+        return new Date('1900-01-01');
+      }
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return new Date('1900-01-01');
+      }
+      return date;
+    };
 
-  // Get unique values for filter dropdowns - removed uniqueStatuses
-  const uniqueTypes = [...new Set(events.map(event => event.type))];
-
-  // Format date for display - updated to handle invalid dates
-  const formatDate = (dateString) => {
-    if (!dateString) return '—';
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) { // Check if date is valid
-      return 'TBD';
-    }
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
+    // Sort by date descending
+    return [...filtered].sort((a, b) => {
+      const dateA = getSortableDate(a.start_date);
+      const dateB = getSortableDate(b.start_date);
+      return dateB.getTime() - dateA.getTime();
     });
-  };
+  }, [events, typeFilter, locationFilter, normalizeLocation]);
 
-  // Format action timestamp for display
-  const formatActionTime = (timestamp) => {
-    if (!timestamp) return '—';
-    const date = new Date(timestamp);
-    if (isNaN(date.getTime())) return '—';
-    
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    });
-  };
-
-  // Get action badge color
-  const getActionColor = (action) => {
-    switch (action) {
-      case 'archive': return 'bg-red-100 text-red-800';
-      case 'reached_out': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // Get type badge color
-  const getTypeColor = (type) => {
-    switch (type) {
-      case 'hackathon': return 'bg-blue-100 text-blue-800';
-      case 'conference': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // Helper function to get a sortable Date object, with fallback for invalid/missing dates
-  const getSortableDate = (dateString) => {
-    if (!dateString) {
-      return new Date('1900-01-01'); // Fallback for null, undefined, or empty string
-    }
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) {
-      return new Date('1900-01-01'); // Fallback for invalid date strings
-    }
-    return date;
-  };
-
-  // Create a sorted version of filteredEvents before rendering
-  const sortedFilteredEvents = [...filteredEvents].sort((a, b) => {
-    const dateA = getSortableDate(a.start_date);
-    const dateB = getSortableDate(b.start_date);
-    return dateB.getTime() - dateA.getTime(); // Sort descending (most recent first)
-  });
+  // Memoized unique types for filter dropdown
+  const uniqueTypes = useMemo(() => {
+    return [...new Set(events.map(event => event.type))];
+  }, [events]);
 
   // Loading state
   if (loading) {
@@ -262,7 +288,10 @@ const EventsPage = () => {
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Events Dashboard</h1>
-              <p className="mt-1 text-gray-500">Hackathons and conferences from your database</p>
+              <p className="mt-1 text-gray-500">
+                Hackathons and conferences from your database 
+                <span className="text-green-600 font-medium"> • Optimized Performance</span>
+              </p>
             </div>
             <button 
               onClick={fetchEvents}
@@ -277,7 +306,7 @@ const EventsPage = () => {
         </div>
       </div>
 
-      {/* Filters - updated to 2 columns since status filter is removed */}
+      {/* Filters */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Filters</h2>
@@ -313,11 +342,14 @@ const EventsPage = () => {
           </div>
         </div>
 
-        {/* Events Table - removed status column */}
+        {/* Events Table */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-medium text-gray-900">
-              Events ({filteredEvents.length})
+              Events ({filteredAndSortedEvents.length})
+              <span className="text-sm text-green-600 font-normal ml-2">
+                ⚡ Single query optimization
+              </span>
             </h2>
           </div>
           
@@ -355,72 +387,23 @@ const EventsPage = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {sortedFilteredEvents.map((event) => (
-                  <tr key={String(event.id) || event.title} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{event.title}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getTypeColor(event.type)}`}>
-                        {event.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {normalizeLocation(event.location)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDate(event.start_date)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDate(event.end_date)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {event.url ? (
-                        <a 
-                          href={event.url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 hover:underline"
-                        >
-                          Visit
-                        </a>
-                      ) : 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {/* Use event.last_action directly if backend provides it */}
-                      {event.last_action ? (
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getActionColor(event.last_action)}`}>
-                          {event.last_action}
-                        </span>
-                      ) : (eventActions[event.id]?.action ? (
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getActionColor(eventActions[event.id].action)}`}>
-                            {eventActions[event.id].action}
-                          </span>
-                        ) : '—')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {/* Use event.action_time directly if backend provides it */}
-                      {event.action_time ? formatActionTime(event.action_time) :
-                       (eventActions[event.id]?.timestamp ? formatActionTime(eventActions[event.id].timestamp) : '—')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      <select
-                        defaultValue=""
-                        onChange={(e) => handleActionSelect(String(event.id), event.type, e.target.value)}
-                        className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                      >
-                        <option value="" disabled>Choose Action</option>
-                        <option value="reached_out">Mark as Reached Out</option>
-                        <option value="archive">Archive</option>
-                      </select>
-                    </td>
-                  </tr>
+                {filteredAndSortedEvents.map((event) => (
+                  <EventRow
+                    key={String(event.id)}
+                    event={event}
+                    onActionSelect={handleActionSelect}
+                    normalizeLocation={normalizeLocation}
+                    formatDate={formatDate}
+                    formatActionTime={formatActionTime}
+                    getActionColor={getActionColor}
+                    getTypeColor={getTypeColor}
+                  />
                 ))}
               </tbody>
             </table>
           </div>
 
-          {filteredEvents.length === 0 && (
+          {filteredAndSortedEvents.length === 0 && (
             <div className="text-center py-12">
               <div className="text-gray-400 text-6xl mb-4">📅</div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">No events found</h3>
