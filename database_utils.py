@@ -402,6 +402,29 @@ def create_tables():
     """Create database tables."""
     get_db_manager().create_tables()
 
+def get_db_session():
+    """
+    Get a database session for legacy compatibility.
+    NOTE: For high-performance operations, use get_optimized_db_session() instead.
+    """
+    return get_db_manager().get_session()
+
+def get_optimized_db_session():
+    """
+    Get an optimized database session with performance enhancements.
+    
+    This session is configured for:
+    - Reduced memory usage through controlled batching
+    - Connection reuse and pooling optimization
+    - Query result streaming for large datasets
+    - Context manager support for automatic cleanup
+    
+    Returns:
+        ContextManager[Session]: Optimized SQLAlchemy session with context manager
+    """
+    # Return the optimized database manager's session context manager
+    return get_db_manager().get_session()
+
 def bulk_save_to_db(events: List[Dict[str, Any]], table_name: str, 
                    update_existing: bool = False, batch_size: int = 1000) -> Dict[str, int]:
     """Legacy wrapper for bulk save."""
