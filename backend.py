@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from database_utils import get_db_session, Hackathon, Conference, save_event_action, get_event_action
+from database_utils import get_db_manager, Hackathon, Conference, save_event_action, get_event_action
 from sqlalchemy.exc import SQLAlchemyError
 
 app = FastAPI(title="Events API", description="API for managing hackathons and conferences", version="1.0.0")
@@ -98,16 +98,12 @@ async def get_events(
     High-performance unified list of events with optimized database queries.
     """
     try:
-        from database_utils import get_optimized_db_session
-        from shared_utils import performance_monitor
-        
-        @performance_monitor
         def get_optimized_events():
             """Get events using optimized database operations."""
-            session = get_optimized_db_session()
+            db_manager = get_db_manager()
             events = []
             
-            try:
+            with db_manager.get_session() as session:
                 # Build efficient database filters
                 def build_query(model_class):
                     query = session.query(model_class).order_by(model_class.created_at.desc())
@@ -178,9 +174,6 @@ async def get_events(
                             break
                 
                 return events
-                
-            finally:
-                session.close()
         
         return get_optimized_events()
         
@@ -200,11 +193,11 @@ async def root():
 async def health_check():
     """Health check endpoint with database connectivity test."""
     try:
-        session = get_db_session()
-        # Test database connection
-        hackathon_count = session.query(Hackathon).count()
-        conference_count = session.query(Conference).count()
-        session.close()
+        db_manager = get_db_manager()
+        with db_manager.get_session() as session:
+            # Test database connection
+            hackathon_count = session.query(Hackathon).count()
+            conference_count = session.query(Conference).count()
         
         return {
             "status": "healthy",

@@ -25,6 +25,13 @@ from config import *
 # Load environment
 load_dotenv()
 
+# Add import for crawl4ai integration at the top
+try:
+    from crawl4ai_integration import crawl4ai_scrape_url, crawl4ai_check_availability
+    CRAWL4AI_AVAILABLE = crawl4ai_check_availability()
+except ImportError:
+    CRAWL4AI_AVAILABLE = False
+
 # Unified Logger with context
 class Logger:
     def __init__(self):
@@ -243,9 +250,63 @@ class WebScraper:
     def __init__(self):
         self.http = HTTPClient()
         self.clients = ServiceClients()
+        self.crawl4ai_available = CRAWL4AI_AVAILABLE
     
-    def scrape(self, url: str, use_firecrawl: bool = True, max_retries: int = 3) -> Dict[str, Any]:
-        """Unified scraping with automatic fallback."""
+    async def scrape_async(self, url: str, use_crawl4ai: bool = True, use_firecrawl: bool = False, max_retries: int = 3) -> Dict[str, Any]:
+        """Async scraping with Crawl4AI support and automatic fallback."""
+        for attempt in range(max_retries):
+            try:
+                # Try Crawl4AI first if available and enabled
+                if use_crawl4ai and self.crawl4ai_available:
+                    result = await crawl4ai_scrape_url(url, extract_structured=True)
+                    if result.get('success'):
+                        return {
+                            'success': True, 
+                            'content': result.get('markdown', result.get('content', '')),
+                            'structured_data': result,
+                            'method': 'crawl4ai'
+                        }
+                
+                # Try FireCrawl if available and enabled
+                if use_firecrawl and self.clients.firecrawl:
+                    result = self.clients.firecrawl.scrape_url(url, params={'formats': ['html'], 'onlyMainContent': True})
+                    if result.get('success'):
+                        return {'success': True, 'content': result.get('html', ''), 'method': 'firecrawl'}
+                
+                # Fallback to HTTP
+                response = self.http.get(url)
+                response.raise_for_status()
+                return {'success': True, 'content': response.text, 'method': 'http'}
+                
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.log("error", "Scraping failed", url=url, error=str(e))
+                    return {'success': False, 'error': str(e)}
+                time.sleep(2 ** attempt)
+        
+        return {'success': False, 'error': 'Max retries exceeded'}
+    
+    def scrape(self, url: str, use_crawl4ai: bool = True, use_firecrawl: bool = False, max_retries: int = 3) -> Dict[str, Any]:
+        """Unified scraping with automatic fallback (sync version)."""
+        # For backward compatibility, provide sync version that runs async internally
+        try:
+            import asyncio
+            # Try to get existing event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # If there's already a loop running, we can't use asyncio.run()
+                # So we fall back to sync methods only
+                logger.log("warning", "Event loop already running, using sync fallback only")
+                return self._scrape_sync_only(url, use_firecrawl, max_retries)
+            except RuntimeError:
+                # No event loop running, we can create one
+                return asyncio.run(self.scrape_async(url, use_crawl4ai, use_firecrawl, max_retries))
+        except Exception as e:
+            logger.log("error", "Async scraping failed, falling back to sync", error=str(e))
+            return self._scrape_sync_only(url, use_firecrawl, max_retries)
+    
+    def _scrape_sync_only(self, url: str, use_firecrawl: bool = False, max_retries: int = 3) -> Dict[str, Any]:
+        """Synchronous-only scraping for when async is not available."""
         for attempt in range(max_retries):
             try:
                 if use_firecrawl and self.clients.firecrawl:
@@ -260,7 +321,7 @@ class WebScraper:
                 
             except Exception as e:
                 if attempt == max_retries - 1:
-                    logger.log("error", "Scraping failed", url=url, error=str(e))
+                    logger.log("error", "Sync scraping failed", url=url, error=str(e))
                     return {'success': False, 'error': str(e)}
                 time.sleep(2 ** attempt)
         
